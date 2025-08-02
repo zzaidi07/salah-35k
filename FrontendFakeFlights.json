@@ -1,0 +1,164 @@
+{
+  "flights": [
+    {
+      "flight_number": "AA302",
+      "from_airport": {
+        "iata": "JFK",
+        "name": "John F. Kennedy International Airport",
+        "city": "New York"
+      },
+      "to_airport": {
+        "iata": "LAX",
+        "name": "Los Angeles International Airport",
+        "city": "Los Angeles"
+      },
+      "departure_time": "2025-08-05T08:30:00Z",
+      "arrival_time": "2025-08-05T11:45:00Z",
+      "duration_minutes": 375
+    },
+    {
+      "flight_number": "BA728",
+      "from_airport": {
+        "iata": "JFK",
+        "name": "John F. Kennedy International Airport",
+        "city": "New York"
+      },
+      "to_airport": {
+        "iata": "LAX",
+        "name": "Los Angeles International Airport",
+        "city": "Los Angeles"
+      },
+      "departure_time": "2025-08-03T14:20:00Z",
+      "arrival_time": "2025-08-03T16:50:00Z",
+      "duration_minutes": 90
+    },
+    {
+      "flight_number": "DL991",
+      "from_airport": {
+        "iata": "ATL",
+        "name": "Hartsfield–Jackson Atlanta International Airport",
+        "city": "Atlanta"
+      },
+      "to_airport": {
+        "iata": "ORD",
+        "name": "O'Hare International Airport",
+        "city": "Chicago"
+      },
+      "departure_time": "2025-08-10T10:00:00Z",
+      "arrival_time": "2025-08-10T11:45:00Z",
+      "duration_minutes": 105
+    },
+    {
+      "flight_number": "AF473",
+      "from_airport": {
+        "iata": "CDG",
+        "name": "Charles de Gaulle Airport",
+        "city": "Paris"
+      },
+      "to_airport": {
+        "iata": "NRT",
+        "name": "Narita International Airport",
+        "city": "Tokyo"
+      },
+      "departure_time": "2025-08-07T13:00:00Z",
+      "arrival_time": "2025-08-08T07:30:00Z",
+      "duration_minutes": 750
+    },
+    {
+      "flight_number": "QF912",
+      "from_airport": {
+        "iata": "SYD",
+        "name": "Sydney Kingsford Smith Airport",
+        "city": "Sydney"
+      },
+      "to_airport": {
+        "iata": "MEL",
+        "name": "Melbourne Airport",
+        "city": "Melbourne"
+      },
+      "departure_time": "2025-08-04T06:15:00Z",
+      "arrival_time": "2025-08-04T07:50:00Z",
+      "duration_minutes": 95
+    },
+    {
+      "flight_number": "LH331",
+      "from_airport": {
+        "iata": "FRA",
+        "name": "Frankfurt Airport",
+        "city": "Frankfurt"
+      },
+      "to_airport": {
+        "iata": "DXB",
+        "name": "Dubai International Airport",
+        "city": "Dubai"
+      },
+      "departure_time": "2025-08-06T21:00:00Z",
+      "arrival_time": "2025-08-07T05:10:00Z",
+      "duration_minutes": 430
+    },
+    {
+      "flight_number": "EK238",
+      "from_airport": {
+        "iata": "BOS",
+        "name": "Logan International Airport",
+        "city": "Boston"
+      },
+      "to_airport": {
+        "iata": "DXB",
+        "name": "Dubai International Airport",
+        "city": "Dubai"
+      },
+      "departure_time": "2025-08-02T23:00:00Z",
+      "arrival_time": "2025-08-03T19:15:00Z",
+      "duration_minutes": 855
+    },
+    {
+      "flight_number": "CX701",
+      "from_airport": {
+        "iata": "HKG",
+        "name": "Hong Kong International Airport",
+        "city": "Hong Kong"
+      },
+      "to_airport": {
+        "iata": "BKK",
+        "name": "Suvarnabhumi Airport",
+        "city": "Bangkok"
+      },
+      "departure_time": "2025-08-09T17:40:00Z",
+      "arrival_time": "2025-08-09T19:30:00Z",
+      "duration_minutes": 110
+    },
+    {
+      "flight_number": "UA452",
+      "from_airport": {
+        "iata": "SFO",
+        "name": "San Francisco International Airport",
+        "city": "San Francisco"
+      },
+      "to_airport": {
+        "iata": "SEA",
+        "name": "Seattle-Tacoma International Airport",
+        "city": "Seattle"
+      },
+      "departure_time": "2025-08-05T12:10:00Z",
+      "arrival_time": "2025-08-05T14:25:00Z",
+      "duration_minutes": 135
+    },
+    {
+      "flight_number": "NH112",
+      "from_airport": {
+        "iata": "HND",
+        "name": "Tokyo Haneda Airport",
+        "city": "Tokyo"
+      },
+      "to_airport": {
+        "iata": "LAX",
+        "name": "Los Angeles International Airport",
+        "city": "Los Angeles"
+      },
+      "departure_time": "2025-08-06T00:10:00Z",
+      "arrival_time": "2025-08-06T18:00:00Z",
+      "duration_minutes": 650
+    }
+  ]
+}
