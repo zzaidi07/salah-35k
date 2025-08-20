@@ -144,7 +144,7 @@ def fmt_time_ampm(value: Union[str, dtime, None]) -> str:
 # State
 # =======================
 def init_state() -> None:
-    st.session_state.setdefault(STATE_PAGE, PAGE_SEARCH)  # <-- new
+    st.session_state.setdefault(STATE_PAGE, PAGE_SEARCH)  
     st.session_state.setdefault(STATE_SEARCH_CLICKED, False)
     st.session_state.setdefault(STATE_SELECTED_IDX, None)
     st.session_state.setdefault(STATE_SELECTED, None)
@@ -163,18 +163,6 @@ def reset_selection() -> None:
 def render_header() -> None:
     st.title(APP_TITLE)
     st.markdown(f"### {APP_SUBTITLE}")
-
-    # Optional: small global CSS for darker base content areas in Streamlit
-    st.markdown(
-        """
-        <style>
-        /* Make markdown text lighter for dark cards context */
-        .stMarkdown, .stCaption, .stText { color: #e5e7eb !important; }
-        /* Buttons – allow default theme; they'll still be readable on dark cards */
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
 
 
 def render_prayer_method() -> str:
@@ -377,8 +365,8 @@ def flight_card(record: Dict[str, Any], idx: int, selected_idx: Optional[int]) -
     org = ap_label(record.get("origin", {}))
     dst = ap_label(record.get("destination", {}))
     date_h = fmt_date_human(record.get("date", ""))
-    dep = fmt_time_ampm(record.get("departure_local")) or "—"
-    arr = fmt_time_ampm(record.get("arrival_local")) or "—"
+    dep = record.get("departure_local") or "—"
+    arr = record.get("arrival_local") or "—"
     stat = record.get("status", "")
 
     is_selected = (selected_idx == idx)
@@ -501,11 +489,6 @@ def render_results() -> None:
     _section("Upcoming flights", cats["future"])
     _section("Past flights", cats["past"])
 
-    result = st.session_state.get(STATE_SALAH_RESULT)
-    if result is not None:
-        st.divider()
-        st.subheader("Salah plan for selected flight")
-        st.write(result)
 
 # =======================
 # App Entrypoint
