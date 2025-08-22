@@ -1,514 +1,241 @@
-from __future__ import annotations
-import json
-from datetime import datetime, time as dtime, date as ddate
-from typing import Any, Dict, Iterable, List, Optional, Tuple
-from typing import Union
-
+import json, io, re
+from pathlib import Path
+from FlightDatalogic import find_flights
+from FlightDatalogic import get_flight_history_json
+from datetime import date
+from difflib import SequenceMatcher
 import pandas as pd
 import streamlit as st
-from salah_at_35k_calculator import salah_calculator  # external dependency
-from FlightDatalogic import get_flight_history  # external dependency
 
-# =======================
-# Constants & Config
-# =======================
-APP_TITLE = "Salah@35k"
-APP_SUBTITLE = "Find your flight"
+st.set_page_config(page_title="Flight Finder", page_icon="✈️", layout="wide")
 
-STATE_PAGE = "page"
-PAGE_SEARCH = "search"
-PAGE_PLAN = "plan"
-
-STATE_ROWS = "rows"
-STATE_SELECTED_IDX = "selected_flight_idx"
-STATE_SELECTED = "selected_flight"
-STATE_SEARCH_CLICKED = "search_clicked"
-
-DATE_FORMATS = ("%Y-%m-%d", "%d-%b-%Y")
-TIME_FORMATS = ("%H:%M", "%I:%M %p", "%I:%M%p", "%H%M")
-AIRPORTS_CSV = "airports.csv"
-
-STATE_PRAYER_METHOD = "prayer_method"
-STATE_SALAH_RESULT = "salah_result"
-
-# =======================
-# Parsing & Formatting
-# =======================
-def parse_date_safe(value: str) -> Optional[ddate]:
-    text = (value or "").strip()
-    for fmt in DATE_FORMATS:
-        try:
-            return datetime.strptime(text, fmt).date()
-        except Exception:
-            continue
-    return None
-
-
-def parse_time_safe(value: str) -> Optional[dtime]:
-    text = (value or "").strip()
-    for fmt in TIME_FORMATS:
-        try:
-            return datetime.strptime(text, fmt).time()
-        except Exception:
-            continue
-    return None
-
-
-def fmt_date_human(value: str) -> str:
-    for fmt in DATE_FORMATS:
-        try:
-            return datetime.strptime(value, fmt).strftime("%a, %b %d, %Y")
-        except Exception:
-            continue
-    return value or "—"
-
-
-def ap_label(ap: Any) -> str:
-    if isinstance(ap, dict):
-        return ap.get("code") or ap.get("name") or "—"
-    return str(ap) if ap else "—"
-
-
-def chip(text: str) -> str:
-    # Dark-theme friendly chip
-    return (
-        "<span style='display:inline-block;padding:2px 8px;border-radius:999px;"
-        "border:1px solid rgba(255,255,255,.2);font-size:12px;margin-right:6px;"
-        "color:#e5e7eb;background:rgba(255,255,255,.06)'>"
-        f"{text}</span>"
-    )
-
-# =======================
-# Data helpers
-# =======================
-def sort_flights(rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Sort by (date, departure_time) DESC so the most recent appears first.
-    Missing values are pushed using safe defaults.
-    """
-    def key(r: Dict[str, Any]) -> Tuple[ddate, dtime]:
-        d = parse_date_safe(r.get("date", "")) or ddate.min
-        t = parse_time_safe(r.get("departure_local", "")) or dtime(0, 0, 0)
-        return (d, t)
-
-    return sorted(list(rows), key=key, reverse=True)
+airports_csv = Path("airports.csv")
+Airlines_csv = Path("Airlines.csv")
 
 
 @st.cache_data(show_spinner=False)
-def load_airports(csv_path: str = AIRPORTS_CSV) -> List[str]:
-    """
-    Returns 'City, Name, IATA' option strings for selectboxes.
-    Cached to avoid re-reading on every rerun.
-    """
-    try:
-        df = pd.read_csv(csv_path, encoding="ISO-8859-1")
-        df["airport_options"] = df[df.columns[0]] + ", " + df[df.columns[1]] + ", " + df[df.columns[2]]
-        return df["airport_options"].tolist()
-    except Exception:
-        return []
+def load_airports(csv_path: Path) -> pd.DataFrame:
+    # Read CSV
+    df = pd.read_csv(csv_path)
+    # Normalize column names
+    df.columns = [c.strip().lower() for c in df.columns]
+    required_cols = {"location", "airport", "icao"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        raise ValueError(f"CSV missing required columns: {', '.join(missing)}")
 
+    # Ensure ICAO is uppercase, remove blanks
+    df["icao"] = df["icao"].astype(str).str.strip().str.upper()
 
-def strip_tz(clock_text: str) -> str:
-    """'08:20AM +03' / '02:50PM EDT' -> '08:20AM' / '02:50PM'."""
-    text = (clock_text or "").strip()
-    return next((tok for tok in text.split() if any(ch.isdigit() for ch in tok)), text)
-
-
-def parse_local_clock_safe(value: str) -> Optional[dtime]:
-    """Parse '08:20AM +03' or '14:05' into a time object using TIME_FORMATS."""
-    return parse_time_safe(strip_tz(value))
-
-
-def compute_flight_early(record: Dict[str, Any]) -> bool:
-    """Best-effort: true if status hints 'Early'; false for 'Scheduled' or unknown."""
-    status = (record.get("status") or "").lower()
-    if "early" in status:
-        return True
-    if "scheduled" in status:
-        return False
-    return False
-
-
-def fmt_time_ampm(value: Union[str, dtime, None]) -> str:
-    """
-    Normalize any time-like input (string or dtime) to 'HH:MM:SS AM/PM',
-    e.g., '08:10:00 AM'. If parsing fails, returns '—' or the original string.
-    """
-    if isinstance(value, dtime):
-        t = value
-    else:
-        t = parse_local_clock_safe(value or "")
-    return t.strftime("%I:%M:%S %p") if t else ((value or "—") if isinstance(value, str) else "—")
-
-# =======================
-# State
-# =======================
-def init_state() -> None:
-    st.session_state.setdefault(STATE_PAGE, PAGE_SEARCH)  
-    st.session_state.setdefault(STATE_SEARCH_CLICKED, False)
-    st.session_state.setdefault(STATE_SELECTED_IDX, None)
-    st.session_state.setdefault(STATE_SELECTED, None)
-    st.session_state.setdefault(STATE_ROWS, [])
-    st.session_state.setdefault(STATE_PRAYER_METHOD, "MWL")
-    st.session_state.setdefault(STATE_SALAH_RESULT, None)
-
-
-def reset_selection() -> None:
-    st.session_state[STATE_SELECTED_IDX] = None
-    st.session_state[STATE_SELECTED] = None
-
-# =======================
-# UI Sections
-# =======================
-def render_header() -> None:
-    st.title(APP_TITLE)
-    st.markdown(f"### {APP_SUBTITLE}")
-
-
-def render_prayer_method() -> str:
-    methods = ["MWL", 'ISNA', 'Egypt', 'Makkah', 'Karachi', 'Tehran', "Jafari"]
-    return st.selectbox("Prayer calculation method", methods, index=0, key=STATE_PRAYER_METHOD)
-
-
-def render_search_controls(airports: List[str]) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
-    """
-    Returns (mode, flight_number, departure, arrival)
-    Only one of (flight_number) or (departure, arrival) will be set,
-    depending on the selected mode.
-    """
-    search_mode = st.radio(
-        "Search by",
-        ["Flight Number", "Route (Departure & Arrival)"],
-        horizontal=True,
-        key="search_mode",
+    # Build search-friendly label: "Airport Name — Location (ICAO)"
+    df["label"] = df.apply(
+        lambda r: f"{r['airport']} — {r['location']} ({r['icao']})", axis=1
     )
 
-    flight_number: Optional[str] = None
-    departure: Optional[str] = None
-    arrival: Optional[str] = None
+    # Drop duplicate ICAOs just in case
+    df = df.drop_duplicates(subset=["icao"]).sort_values("location", kind="stable")
+    return df[["label", "icao", "airport", "location"]]
 
-    if search_mode == "Route (Departure & Arrival)":
-        col1, col2 = st.columns(2)
-        with col1:
-            departure = st.selectbox(
-                "Departure Location", options=airports, index=None, placeholder="e.g., Dubai", key="departure_sel"
+
+def _norm(s: str) -> str:
+    """Normalize airline names for tolerant comparisons."""
+    s = str(s or "").casefold().strip()
+    s = re.sub(r'["“”‘’\'.,&/()\-]', " ", s)  # drop punctuation
+    s = re.sub(r"\s+", " ", s)  # collapse spaces
+    return s
+
+
+def _similar(a: str, b: str) -> float:
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def filter_by_airline(df: pd.DataFrame, selected_airline: str) -> pd.DataFrame:
+    """Filter df (expects a column named 'airline', any case) to the selected airline."""
+    if not selected_airline or selected_airline == "All airlines":
+        return df
+
+    # locate the column regardless of case
+    col_map = {c.lower(): c for c in df.columns}
+    if "airline" not in col_map:
+        return df  # nothing to filter on
+
+    col = col_map["airline"]
+    target = _norm(selected_airline)
+    series_norm = df[col].fillna("").map(_norm)
+
+    # exact OR very close (handles tiny punctuation/spacing diffs)
+    exact_mask = series_norm == target
+    close_mask = series_norm.map(lambda s: _similar(s, target) >= 0.92)
+
+    return df[exact_mask | close_mask]
+
+
+def menu():
+    st.title("✈️ Salah@35k")
+
+    st.session_state["mode"] = st.radio(
+        "Search Mode",
+        options=["Flight Number", "Destination & Arrival"],
+        index=0,
+        horizontal=True,
+        help="Choose how you want to search for flights.",
+    )
+
+    if st.session_state.get("mode") == "Flight Number":
+        st.caption("Search for your flight number")
+
+        with st.form("search"):
+            Flightnum = st.text_input(
+                "Flight Number",
+                placeholder="Search Flight Number...",
             )
-        with col2:
-            arrival = st.selectbox(
-                "Arrival Location", options=airports, index=None, placeholder="e.g., LAX", key="arrival_sel"
-            )
-    else:
-        flight_number = st.text_input(
-            "Flight Number", placeholder="e.g., AA123", key="flight_number_input"
-        )
+            submit = st.form_submit_button("Find Flights", use_container_width=True)
 
-    return search_mode, flight_number, departure, arrival
+        if not submit:
+            return
 
+        if not Flightnum:
+            st.warning("Please search for a flight number.")
+            return
 
-def handle_search(search_mode: str, flight_number: Optional[str], departure: Optional[str], arrival: Optional[str]) -> None:
-    """
-    Executes when the user clicks 'Find Matches'.
-    Updates session state with results.
-    """
-    st.session_state[STATE_SEARCH_CLICKED] = True
-    reset_selection()
+        with st.spinner(f"Searching flights {Flightnum}…"):
+            try:
+                result = get_flight_history_json(Flightnum)
+                status_code = 200
+                if isinstance(result, tuple):
+                    payload, status_code = result
+                else:
+                    payload = result
 
-    if search_mode == "Route (Departure & Arrival)":
-        load = st.empty()
-        load.write(f"Searching flights from **{departure or '—'}** to **{arrival or '—'}**")
-        st.info("Route search coming soon. Try Flight Number for now.")
-        return
+                data = json.loads(payload)
+            except Exception as e:
+                st.error(f"Error fetching flights: {e}")
+                return
 
-    # Flight Number path
-    if not (flight_number or "").strip():
-        st.warning("Please enter a flight number (e.g., AA123).")
-        st.session_state[STATE_ROWS] = []
-        return
+        count = data.get("count", 0)
+        st.metric("Flights Found", count)
 
-    with st.spinner("Fetching latest flight history..."):
+        if data.get("source"):
+            st.caption(f"Source: {data['source']}")
+
+        flights = data.get("items", [])
+        if not flights:
+            st.info("No flights found for this route right now.")
+            return
+
+        # Turn results into DataFrame
         try:
-            fn_input = (flight_number or "").strip().upper()
-            rows = get_flight_history(fn_input)
+            df = pd.DataFrame(flights)
+        except Exception:
+            df = pd.json_normalize(flights)
+
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+    if st.session_state.get("mode") == "Destination & Arrival":
+        st.caption("Select departure and arrival airports")
+
+        try:
+            airports = load_airports(airports_csv)
         except Exception as e:
-            st.error(f"Failed to fetch flight history: {e}")
-            st.session_state[STATE_ROWS] = []
+            st.error(f"Failed to load airports CSV: {e}")
+            st.stop()
+
+        # Build lookup mapping for ICAO codes
+        label_to_icao = dict(zip(airports["label"], airports["icao"]))
+
+        # Search inputs
+        with st.form("search"):
+            col1, col2 = st.columns(2)
+
+            with col1:
+                dep_label = st.selectbox(
+                    "Departure Airport",
+                    options=airports["label"].tolist(),
+                    index=None,
+                    placeholder="Search departure airport...",
+                )
+
+            with col2:
+                arr_label = st.selectbox(
+                    "Arrival Airport",
+                    options=airports["label"].tolist(),
+                    index=None,
+                    placeholder="Search arrival airport...",
+                )
+            col3, col4 = st.columns(2)
+            with col3:
+                options = df = pd.read_csv(Airlines_csv)
+                selected_option = st.selectbox(
+                    "Select an Airline (Optional)",
+                    options,
+                    index=None,
+                    placeholder="Search airline...",
+                )
+            with col4:
+                selected_date = st.date_input("Select a Date (Optional)", value=None)
+
+            submitted = st.form_submit_button("Find Flights", use_container_width=True)
+
+        if not submitted:
             return
 
-        # Normalize expected shapes
-        if not rows or (isinstance(rows, dict) and rows.get("error")):
-            st.warning("No matching flight found. Check your spelling.")
-            st.session_state[STATE_ROWS] = []
+        if not dep_label or not arr_label:
+            st.warning("Please select both departure and arrival airports.")
             return
 
-        normalized = []
-        for r in rows:
-            if not r.get("flight_number"):
-                r = {**r, "flight_number": fn_input}
-            normalized.append(r)
+        dep_icao = label_to_icao[dep_label]
+        arr_icao = label_to_icao[arr_label]
 
-        st.session_state[STATE_ROWS] = sort_flights(normalized)
-
-def set_selected_variables(record: Dict[str, Any]) -> None:
-    """
-    Derive and stash variables you can use later.
-    """
-    st.session_state["flight_date"] = record.get("date") or ""
-    st.session_state["Departure_time"] = parse_local_clock_safe(record.get("departure_local") or "")
-    st.session_state["Flight_early"] = compute_flight_early(record)
-    st.session_state["Flight_Number"] = (record.get("flight_number") or "").upper()
-
-def call_salah_for_selected(record: Dict[str, Any], idx: int) -> None:
-    # flight number: prefer record, else user's input box
-    fnum = (record.get("flight_number") or (st.session_state.get("flight_number_input") or "")).upper()
-
-    # departure_time -> "HH:MM:SS AM/PM" string (safe even if original had TZ text)
-    dep_text = record.get("departure_local") or ""
-    dep_obj = parse_local_clock_safe(dep_text)
-    dep_arg = dep_obj.strftime("%I:%M:%S %p") if dep_obj else fmt_time_ampm(dep_text)
-
-    # date -> (YYYY, M, D) tuple
-    d_obj = parse_date_safe(record.get("date") or "")
-    date_tuple = (d_obj.year, d_obj.month, d_obj.day) if d_obj else (2025, 8, 1)
-
-    # early flag + method + index
-    early = compute_flight_early(record)
-    method = st.session_state.get(STATE_PRAYER_METHOD, "MWL")
-
-    try:
-        result = salah_calculator(
-            flightnumber=fnum,
-            departure_time=dep_arg,
-            prayer_method=method,
-            date=date_tuple,
-            flight_early=early,
-            debug=False,
-            datalog_index=-1,
-        )
-        st.session_state[STATE_SALAH_RESULT] = result
-        st.toast("Salah plan calculated ✅", icon="🕌")
-    except Exception as e:
-        st.error(f"Salah calculator failed: {e}")
-
-# =======================
-# Categorization helpers (with stable, vertical layout)
-# =======================
-from datetime import datetime as dt
-
-def _combine_local_datetime(record: Dict[str, Any]) -> Optional[datetime]:
-    """Best-effort combine record['date'] + record['departure_local'] (no tz)."""
-    d = parse_date_safe(record.get("date") or "")
-    t = parse_local_clock_safe(record.get("departure_local") or "")
-    if not d and not t:
-        return None
-    d = d or dt.now().date()
-    t = t or dtime(0, 0, 0)
-    return dt.combine(d, t)
-
-def categorize_flights(rows: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-    """
-    current: date == today (or now between dep/arr if both exist)
-    upcoming: dep in the future
-    past: dep in the past
-    """
-    now = dt.now()
-    today = now.date()
-
-    current, future, past = [], [], []
-    for r in rows:
-        dep_dt = _combine_local_datetime(r)
-        if dep_dt is None:
-            past.append(r)  # unknown timing -> shove to past
-            continue
-
-        arr_t = parse_local_clock_safe(r.get("arrival_local") or "")
-        arr_dt = dt.combine(parse_date_safe(r.get("date") or "") or dep_dt.date(), arr_t) if arr_t else None
-
-        if dep_dt.date() == today:
-            if arr_dt and dep_dt <= now <= arr_dt:
-                current.append(r)
-            else:
-                current.append(r)  # same-day flights grouped as current
-        elif dep_dt > now:
-            future.append(r)
-        else:
-            past.append(r)
-
-    return {
-        "current": sort_flights(current),
-        "future": sort_flights(future),
-        "past": sort_flights(past),
-    }
-
-# =======================
-# Flight card (dark theme, stable height)
-# =======================
-def _select_flight(record: Dict[str, Any], idx: int) -> None:
-    st.session_state[STATE_SELECTED_IDX] = idx
-    st.session_state[STATE_SELECTED] = record
-
-    # Also store the variables you wanted handy
-    st.session_state["date"] = record.get("date") or ""
-    dep_obj = parse_local_clock_safe(record.get("departure_local") or "")
-    st.session_state["departure_time"] = dep_obj
-    st.session_state["Flight_early"] = compute_flight_early(record)
-    st.session_state["flightnumber"] = (record.get("flight_number") or "").upper()
-
-    # Call calculator
-    call_salah_for_selected(record, idx)
-
-    # Flip to details page and rerun
-    st.session_state[STATE_PAGE] = PAGE_PLAN      # <-- new
-    st.toast("Flight selected", icon="✈️")       
-
-def flight_card(record: Dict[str, Any], idx: int, selected_idx: Optional[int]) -> None:
-    fn = (record.get("flight_number") or "").upper()
-    org = ap_label(record.get("origin", {}))
-    dst = ap_label(record.get("destination", {}))
-    date_h = fmt_date_human(record.get("date", ""))
-    dep = record.get("departure_local") or "—"
-    arr = record.get("arrival_local") or "—"
-    stat = record.get("status", "")
-
-    is_selected = (selected_idx == idx)
-
-    # Dark theme colors
-    border = "#60a5fa" if is_selected else "rgba(255,255,255,.18)"
-    bg = "rgba(37,99,235,0.16)" if is_selected else "#0f172a"   # selected: blue-tinted; base: slate-900
-    text_primary = "#f8fafc"   # near-white
-    text_muted = "rgba(248,250,252,.75)"  # muted near-white
-
-    badge = "✓ Selected" if is_selected else "Select"
-
-    with st.container():
-        st.markdown(
-            f"""
-            <div style="
-                border:1px solid {border};
-                background:{bg};
-                padding:14px 16px;
-                border-radius:12px;
-                margin-bottom:10px;
-                color:{text_primary};">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div style="font-size:18px;font-weight:700;line-height:1.2;">
-                        {fn} · {org} → {dst}
-                    </div>
-                    <div style="font-size:13px;color:{text_muted};">{stat or ""}</div>
-                </div>
-                <div style="font-size:13px;color:{text_muted};margin-top:4px;">📅 {date_h}</div>
-                <div style="font-size:15px;margin-top:8px;">🛫 {dep} · {org}
-                    &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; 🛬 {arr} · {dst}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.button(
-            badge,
-            key=f"select_{idx}",
-            on_click=_select_flight,
-            args=(record, idx),
-            use_container_width=True,
-        )
-
-# =======================
-# Results (vertical, 3 sections)
-# =======================
-
-def render_plan_page() -> None:
-    st.subheader("Salah plan for selected flight")
-
-    result = st.session_state.get(STATE_SALAH_RESULT)
-    selected = st.session_state.get(STATE_SELECTED)
-
-    if not selected:
-        st.info("No flight selected.")
-        if st.button("Back to search"):
-            st.session_state[STATE_PAGE] = PAGE_SEARCH
-            st.rerun()
-        return
-
-    # Header summary
-    fn = (selected.get("flight_number") or "").upper()
-    org = ap_label(selected.get("origin", {}))
-    dst = ap_label(selected.get("destination", {}))
-    date_h = fmt_date_human(selected.get("date", ""))
-    st.markdown(f"**{fn}** — {org} → {dst} · {date_h}")
-
-    # Render calculator output (expects a dict, see step 2)
-    if isinstance(result, dict):
-        # Textual schedule (ordered)
-        schedule = result.get("schedule", [])
-        if schedule:
-            st.markdown("### Times (in-flight matches)")
-            for item in schedule:
-                st.write(f"- **{item['label'].title()}** at {item['time_12h']}")
-
-        # Qiblah figures
-        figs = result.get("qibla_figs", [])
-        if figs:
-            st.markdown("### Qiblah directions")
-            for fig in figs:
-                st.plotly_chart(fig, use_container_width=True)
-
-        # Debug plots if you choose to return them
-        debug_fig = result.get("debug_fig")
-        if debug_fig:
-            st.markdown("### Debug")
-            st.pyplot(debug_fig)
-    else:
-        # Fallback to whatever the function returned
-        st.write(result)
-
-    st.divider()
-    if st.button("Back to search"):
-        st.session_state[STATE_PAGE] = PAGE_SEARCH
-        st.rerun()
-
-def render_results() -> None:
-    rows: List[Dict[str, Any]] = st.session_state.get(STATE_ROWS, [])
-    if not rows:
-        return
-
-    # Freeze indices so keys are stable across categories
-    indexed_rows = [{**r, "_idx": i} for i, r in enumerate(rows)]
-    cats = categorize_flights(indexed_rows)
-
-    st.caption(f"{len(rows)} flights found. Sorted by most recent departure first.")
-
-    selected_idx = st.session_state.get(STATE_SELECTED_IDX)
-
-    def _section(title: str, items: List[Dict[str, Any]]) -> None:
-        if not items:
+        if dep_icao == arr_icao:
+            st.warning("Departure and arrival airports must be different.")
             return
-        st.subheader(title)
-        for r in items:
-            flight_card(r, r["_idx"], selected_idx)
 
-    _section("Current flights", cats["current"])
-    _section("Upcoming flights", cats["future"])
-    _section("Past flights", cats["past"])
+        # Call scraper
+        with st.spinner(f"Searching flights {dep_icao} → {arr_icao}…"):
+            try:
+                result = find_flights(dep_icao, arr_icao)
+                status_code = 200
+                if isinstance(result, tuple):
+                    payload, status_code = result
+                else:
+                    payload = result
+                data = json.loads(payload)
+            except Exception as e:
+                st.error(f"Error fetching flights: {e}")
+                return
 
+        # Check for API errors
+        if status_code != 200 or "items" not in data:
+            msg = data.get("message", "No results parsed.")
+            st.error(msg)
+            if data.get("error"):
+                st.caption(f"Error: {data['error']}")
+            if data.get("tried_urls"):
+                with st.expander("Tried URLs"):
+                    for url in data["tried_urls"]:
+                        st.code(url)
+            return
+        # Display results
+        count = data.get("count", 0)
+        st.metric("Flights Found", count)
 
-# =======================
-# App Entrypoint
-# =======================
-def main() -> None:
-    init_state()
-    render_header()
+        if data.get("source"):
+            st.caption(f"Source: {data['source']}")
 
-    if st.session_state[STATE_PAGE] == PAGE_SEARCH:
-        render_prayer_method()
-        airports = load_airports()
-        mode, flight_number, departure, arrival = render_search_controls(airports)
+        flights = data.get("items", [])
+        if not flights:
+            st.info("No flights found for this route right now.")
+            return
 
-        if st.button("Find Matches", key="search_btn"):
-            handle_search(mode, flight_number, departure, arrival)
+        # Turn results into DataFrame
+        try:
+            df = pd.DataFrame(flights)
+            filtered_df = filter_by_airline(df, selected_option)
+        except Exception:
+            df = pd.json_normalize(flights)
 
-        render_results()
+        st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
-    elif st.session_state[STATE_PAGE] == PAGE_PLAN:
-        render_plan_page()
 
 if __name__ == "__main__":
-    main()
+    menu()
