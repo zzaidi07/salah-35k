@@ -1,9 +1,50 @@
 # flightscraper.py
 from pathlib import Path
-import requests, re, json, html, sys
-from typing import Dict, Any, Tuple, List, Iterable
-from datetime import date as _date, datetime, timedelta
+import requests, re, json, html
+from typing import Dict, Any, Tuple, List
+import datetime as dt
+from datetime import timedelta, timezone
+from zoneinfo import ZoneInfo
 from bs4 import BeautifulSoup
+from salah_at_35k_calculator import salah_calculator
+
+_TZ_ABBREV_OFFSETS = {
+    # UTC-ish
+    "UTC": (0, 0),
+    "GMT": (0, 0),
+    "Z": (0, 0),
+    # North America
+    "EDT": (-4, 0),
+    "EST": (-5, 0),
+    "CDT": (-5, 0),
+    "CST": (-6, 0),
+    "MDT": (-6, 0),
+    "MST": (-7, 0),
+    "PDT": (-7, 0),
+    "PST": (-8, 0),
+    # Europe
+    "BST": (+1, 0),  # UK summer
+    "IST": (
+        +5,
+        30,
+    ),  # India (note: ambiguous with Ireland/Israel, but India is most common)
+    "WET": (0, 0),
+    "WEST": (+1, 0),
+    "CET": (+1, 0),
+    "CEST": (+2, 0),
+    "EET": (+2, 0),
+    "EEST": (+3, 0),
+    # Asia-Pacific
+    "JST": (+9, 0),
+    "KST": (+9, 0),
+    "AEST": (+10, 0),
+    "AEDT": (+11, 0),
+    "ACST": (+9, 30),
+    "ACDT": (+10, 30),
+    "NZST": (+12, 0),
+    "NZDT": (+13, 0),
+}
+
 
 headers = {
     "User-Agent": (
@@ -217,12 +258,12 @@ def get_flight_history(flight_number: str) -> Dict[str, Any]:
         aircraft = cells[1]
         origin = parse_airport(cells[2])
         destination = parse_airport(cells[3])
-        departure_local = cells[4]
-        arrival_local = cells[5]
+        departure = cells[4]
+        arrival = cells[5]
         last_col = cells[6] if len(cells) > 6 else ""
 
         try:
-            date_iso = datetime.strptime(date_raw, "%d-%b-%Y").date().isoformat()
+            date_iso = dt.datetime.strptime(date_raw, "%d-%b-%Y").date().isoformat()
         except Exception:
             date_iso = date_raw
 
@@ -239,8 +280,8 @@ def get_flight_history(flight_number: str) -> Dict[str, Any]:
                 "aircraft": aircraft,
                 "origin": origin,
                 "destination": destination,
-                "departure_local": departure_local,
-                "arrival_local": arrival_local,
+                "departure": departure,
+                "arrival": arrival,
                 "duration": duration,
                 "status": status,
             }
@@ -354,3 +395,117 @@ def find_flights(departure: str, arrival: str):
             "error": last_error,
         }
     ), 502
+
+
+# ------------- Date_finder -------------
+
+
+def FetchDate(input_str: str, status: str | None = None) -> dt.date:
+    """
+    Given a string like 'Sun 9:00 PM UTC' or 'Mon 07:00 +03', return the DATE (datetime.date)
+    for THIS CONTEXT'S WEEK in the specified timezone.
+
+    Status-driven week selection:
+      - Past-ish (Arrived, Gate Arrival, En Route, On Time): most recent weekday (<= today)
+      - Future-ish (Scheduled, Delayed): next weekday (>= today)
+      - Unknown/missing: defaults to most recent (<= today)
+
+    Supported tz forms:
+      - IANA: 'America/Toronto', 'Europe/Paris'
+      - Abbrevs: 'EDT', 'PST', 'CET', ...
+      - UTC/GMT: 'UTC', 'GMT'
+      - Offsets: '+03', '-05', '+0330', '-0530', '+03:00', 'UTC+3', 'GMT +03:00'
+    """
+    s = input_str.strip()
+
+    # Day, time, optional AM/PM, then the rest as tz (time is ignored for return, but still parsed)
+    m = re.match(r"^\s*([A-Za-z]{3})\s+(\d{1,2}:\d{2})(?:\s*([AaPp][Mm]))?\s*(.*)$", s)
+    if not m:
+        raise ValueError(
+            "Invalid format. Example: 'Mon 7:00 AM +03' or 'Sun 21:00 UTC'"
+        )
+    day_str, time_str, ampm, tz_str = m.groups()
+
+    # Normalize day -> index (Mon=0 ... Sun=6)
+    days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    try:
+        day_index = days.index(day_str.lower())
+    except ValueError:
+        raise ValueError(f"Invalid day: {day_str}")
+
+    # Parse time (even though we return only date) to validate input and keep behavior consistent
+    if ampm:
+        _ = dt.datetime.strptime(f"{time_str} {ampm.upper()}", "%I:%M %p")
+    else:
+        _ = dt.datetime.strptime(time_str, "%H:%M")
+
+    # ---- Timezone parsing ----
+    tz_raw = (tz_str or "").strip()
+    if not tz_raw:
+        tz = timezone.utc
+    else:
+        upper = tz_raw.upper()
+
+        if upper in _TZ_ABBREV_OFFSETS:
+            hh, mm = _TZ_ABBREV_OFFSETS[upper]
+            delta = timedelta(hours=abs(hh), minutes=abs(mm))
+            if hh < 0:  # negative offset
+                delta = -delta
+            tz = timezone(delta)
+        elif upper in {"UTC", "GMT"}:
+            tz = timezone.utc
+        else:
+            cleaned = re.sub(r"^(?i:UTC|GMT)\s*", "", tz_raw)
+            m_off = re.match(r"^([+-])\s*(\d{1,2})(?::?(\d{2}))?\s*$", cleaned)
+            if m_off:
+                sign, hh, mm = m_off.groups()
+                hours = int(hh)
+                minutes = int(mm) if mm else 0
+                if hours > 14 or minutes > 59:
+                    raise ValueError(f"Invalid numeric offset: {tz_raw}")
+                delta = timedelta(hours=hours, minutes=minutes)
+                if sign == "-":
+                    delta = -delta
+                tz = timezone(delta)
+            else:
+                try:
+                    tz = ZoneInfo(tz_raw)
+                except Exception:
+                    raise ValueError(f"Invalid timezone: {tz_raw}")
+
+    # ---- Decide week direction from status ----
+    status_norm = (status or "").strip().lower()
+    is_future = any(k in status_norm for k in ["scheduled", "delay"])  # delayed/delay
+    is_pastish = any(
+        k in status_norm
+        for k in [
+            "arrived",
+            "gate arrival",
+            "gate-arrival",
+            "en route",
+            "enroute",
+            "on time",
+            "ontime",
+        ]
+    )
+
+    # Default: treat as past-ish if unknown
+    mode = "future" if (is_future and not is_pastish) else "past"
+
+    # Compute date based on mode
+    today = dt.datetime.now(tz).date()
+    today_idx = today.weekday()  # Mon=0..Sun=6
+    diff = day_index - today_idx
+
+    if mode == "future":
+        # next occurrence (>= today)
+        if diff < 0:
+            diff += 7
+        target_date = today + timedelta(days=diff)
+    else:
+        # most recent occurrence (<= today)
+        if diff > 0:
+            diff -= 7
+        target_date = today + timedelta(days=diff)
+
+    return target_date

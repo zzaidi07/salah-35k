@@ -1,16 +1,22 @@
-import json, io, re
+import json, re
 from pathlib import Path
-from FlightDatalogic import find_flights
-from FlightDatalogic import get_flight_history_json
-from datetime import date
+from FlightDatalogic import find_flights, get_flight_history_json, FetchDate
+from salah_at_35k_calculator import salah_calculator
+from datetime import datetime
 from difflib import SequenceMatcher
+from typing import Any, Dict, Optional, Iterable
 import pandas as pd
 import streamlit as st
+from dateutil import parser as date_parser
+import pytz
+
 
 st.set_page_config(page_title="Flight Finder", page_icon="✈️", layout="wide")
 
 airports_csv = Path("airports.csv")
 Airlines_csv = Path("Airlines.csv")
+STATE_SELECTED_IDX = "selected_flight_idx"
+STATE_SELECTED_FLIGHT = "selected_flight"
 
 
 @st.cache_data(show_spinner=False)
@@ -37,6 +43,32 @@ def load_airports(csv_path: Path) -> pd.DataFrame:
     return df[["label", "icao", "airport", "location"]]
 
 
+def IsFlightEarly(status: str) -> bool:
+    if status == "Early":
+        return True
+    else:
+        return False
+
+
+def parse_flight_datetime(time_str: str) -> Optional[str]:
+    if not time_str or not isinstance(time_str, str):
+        return None
+
+    try:
+        # Example: "Sat 09:00PM PDT" -> parse automatically
+        dt = date_parser.parse(time_str, fuzzy=True)
+
+        # Ensure it's timezone-aware; if missing, assume UTC
+        if dt.tzinfo is None:
+            dt = pytz.UTC.localize(dt)
+
+        # Convert to ISO date (YYYY-MM-DD) for consistency
+        return dt.strftime("%Y-%m-%d")
+
+    except Exception:
+        return None
+
+
 def _norm(s: str) -> str:
     """Normalize airline names for tolerant comparisons."""
     s = str(s or "").casefold().strip()
@@ -47,6 +79,31 @@ def _norm(s: str) -> str:
 
 def _similar(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
+
+
+def parse_time(input_str: str) -> str:
+    # Use regex to extract the time (e.g., 08:27AM)
+    match = re.search(r"\b\d{1,2}:\d{2}[APMapm]{2}\b", input_str)
+    if not match:
+        return None  # If no valid time is found
+
+    # Parse the extracted time
+    raw_time = match.group()
+    parsed_time = datetime.strptime(raw_time.upper(), "%I:%M%p")
+
+    # Convert to desired format hh:mm:ss AM/PM
+    return parsed_time.strftime("%I:%M:%S %p")
+
+
+def _ap_label(ap: Any) -> str:
+    """Return a readable airport label from dict or string."""
+    if isinstance(ap, dict):
+        name = ap.get("name") or ap.get("airport")
+        code = ap.get("code") or ap.get("icao") or ap.get("iata")
+        if name and code:
+            return f"{name} ({code})"
+        return name or code or "—"
+    return str(ap) if ap else "—"
 
 
 def filter_by_airline(df: pd.DataFrame, selected_airline: str) -> pd.DataFrame:
@@ -112,12 +169,6 @@ def menu():
                 st.error(f"Error fetching flights: {e}")
                 return
 
-        count = data.get("count", 0)
-        st.metric("Flights Found", count)
-
-        if data.get("source"):
-            st.caption(f"Source: {data['source']}")
-
         flights = data.get("items", [])
         if not flights:
             st.info("No flights found for this route right now.")
@@ -129,7 +180,15 @@ def menu():
         except Exception:
             df = pd.json_normalize(flights)
 
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        records = (
+            df.to_dict("records") if isinstance(df, pd.DataFrame) else (flights or [])
+        )
+
+        selected = render_flight_cards(records, section_title="Flights")
+
+        if selected:
+            st.success("Selected flight")
+            st.json(selected)
 
     if st.session_state.get("mode") == "Destination & Arrival":
         st.caption("Select departure and arrival airports")
@@ -216,11 +275,6 @@ def menu():
                         st.code(url)
             return
         # Display results
-        count = data.get("count", 0)
-        st.metric("Flights Found", count)
-
-        if data.get("source"):
-            st.caption(f"Source: {data['source']}")
 
         flights = data.get("items", [])
         if not flights:
@@ -234,7 +288,148 @@ def menu():
         except Exception:
             df = pd.json_normalize(flights)
 
-        st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+        records = (
+            filtered_df.to_dict("records")
+            if isinstance(filtered_df, pd.DataFrame)
+            else (flights or [])
+        )
+
+        for r in records:
+            if isinstance(r, dict):
+                r["origin"] = dep_icao
+                r["destination"] = arr_icao
+                r["Dep_date"] = FetchDate(r.get("departure"), r.get("status"))
+                r["Arr_date"] = FetchDate(r.get("arrival"), r.get("status"))
+        selected = render_flight_cards(records, section_title="Flights")
+
+        if selected:
+            salah_calculator(
+                flightnumber=selected.get("ident"),
+                departure_time=selected.get(parse_time("date"))
+                or selected.get("departure"),
+                prayer_method="MWL",  # or get this from a selectbox if needed
+                date=selected.get("Dep_date") or selected.get("date"),
+                flight_early=IsFlightEarly(
+                    selected.get("status") or selected.get("flight_status")
+                ),
+                debug=False,
+                datalog_index=0,
+            )
+        if selected:
+            st.success("Selected flight")
+            st.json(selected)
+
+
+def _flight_card(record: Dict[str, Any], idx: int, selected_idx: Optional[int]) -> bool:
+    """Render one card; return True if its button was clicked."""
+    org = _ap_label(
+        record.get("origin")
+        or record.get("from")
+        or record.get("departure_airport")
+        or {}
+    )
+    dst = _ap_label(
+        record.get("destination")
+        or record.get("to")
+        or record.get("arrival_airport")
+        or {}
+    )
+    # Date & status
+    date_h = record.get("Dep_date") or record.get("date")
+
+    dep = (
+        record.get("departure_local")
+        or record.get("departureLocal")
+        or record.get("departure")
+        or "—"
+    )
+    arr = (
+        record.get("arrival_local")
+        or record.get("arrivalLocal")
+        or record.get("arrival")
+        or "—"
+    )
+    stat = (
+        record.get("status")
+        or record.get("flight_status")
+        or record.get("statusText")
+        or ""
+    )
+
+    fn = record.get("ident", "")
+    airline = record.get("airline") or ""
+
+    aircraft = record.get("aircraft") or record.get("aircraftType")
+    duration = record.get("duration") or record.get("block_time")
+
+    is_selected = selected_idx == idx
+    border = "#60a5fa" if is_selected else "rgba(255,255,255,.18)"
+    bg = "rgba(37,99,235,0.16)" if is_selected else "#0f172a"
+    text_primary = "#f8fafc"
+    text_muted = "rgba(248,250,252,.75)"
+    badge = "✓ Selected" if is_selected else "Select"
+
+    extra = " · ".join([p for p in [aircraft, duration] if p])  # e.g. "B77W · 12:41"
+
+    top_line = f"{fn} · " if fn else ""
+    if airline:
+        top_line += f"{airline} · "
+    top_line += f"{org} → {dst}"
+
+    with st.container():
+        st.markdown(
+            f"""
+            <div style="
+                border:1px solid {border};
+                background:{bg};
+                padding:14px 16px;
+                border-radius:12px;
+                margin-bottom:10px;
+                color:{text_primary};">
+                <div style="font-size:18px;font-weight:700;">
+                    {top_line}
+                </div>
+                <div style="font-size:13px;color:{text_muted};margin-top:4px;">
+                    📅 {date_h} &nbsp;|&nbsp; {stat}{(" &nbsp;|&nbsp; " + extra) if extra else ""}
+                </div>
+                <div style="font-size:16px;font-weight:600;margin-top:10px;">
+                    🛫 Departure: <span style="color:{text_primary};">{dep}</span> from {org}
+                </div>
+                <div style="font-size:16px;font-weight:600;margin-top:4px;">
+                    🛬 Arrival: <span style="color:{text_primary};">{arr}</span> at {dst}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return st.button(badge, key=f"select_{idx}", use_container_width=True)
+
+
+def render_flight_cards(
+    records: Iterable[Dict[str, Any]], section_title: str = "Flights"
+) -> Optional[Dict[str, Any]]:
+    """
+    Render a list of flight cards. Returns the selected record (dict) or None.
+    """
+    st.session_state.setdefault(STATE_SELECTED_IDX, None)
+    st.session_state.setdefault(STATE_SELECTED_FLIGHT, None)
+    st.subheader(section_title)
+
+    items = list(records or [])
+
+    selected_idx = st.session_state.get(STATE_SELECTED_IDX)
+    clicked_idx: Optional[int] = None
+
+    for i, rec in enumerate(items):
+        if isinstance(rec, dict) and _flight_card(rec, i, selected_idx):
+            clicked_idx = i
+
+    if clicked_idx is not None:
+        st.session_state[STATE_SELECTED_IDX] = clicked_idx
+        st.session_state[STATE_SELECTED_FLIGHT] = items[clicked_idx]  # <-- keep dict
+        st.toast("Flight selected", icon="✈️")
+
+    return st.session_state.get(STATE_SELECTED_FLIGHT)
 
 
 if __name__ == "__main__":
