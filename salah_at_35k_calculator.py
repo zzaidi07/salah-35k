@@ -350,7 +350,7 @@ def salah_calculator(flightnumber,
 
     flight_times = np.zeros(NumRecords)
     invalidTime =  '-----'
-
+    prev_height = 0
     ind = 0
     for ind_rec, row in df.iterrows():
 
@@ -365,7 +365,7 @@ def salah_calculator(flightnumber,
         altitudes[ind] = height
         loc_latitude = float(df.LatitudeLat[ind_rec][:6])
         loc_longitude = float(df.LongitudeLon[ind_rec][:6])
-        coordinates = (loc_latitude, loc_longitude, height)
+        coordinates = (loc_latitude, loc_longitude, height * 0.3048)
         prayer_times = prayTimes.getTimes(date, coordinates, origin_utc) 
 
 
