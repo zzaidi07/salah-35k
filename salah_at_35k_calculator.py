@@ -1,5 +1,6 @@
 import numpy as np
 import math
+import json
 import pandas as pd
 import matplotlib.pyplot as plt
 from PrayTimes import prayTimes
@@ -255,7 +256,7 @@ def draw_plane_with_arrow(relative_angle_deg, title = '', plane_heading_deg=0, a
         height=600,
     )
 
-    fig.show()
+    return fig
     
 
 def salah_calculator(flightnumber, 
@@ -406,88 +407,95 @@ def salah_calculator(flightnumber,
 
     
     # Find prayer times, and the qibla directions:
-    
-    diff_dhuhr = np.abs(dhuhr_times - flight_times)
-    diff_asr = np.abs(asr_times - flight_times)
+    diff_dhuhr   = np.abs(dhuhr_times   - flight_times)
+    diff_asr     = np.abs(asr_times     - flight_times)
     diff_maghrib = np.abs(maghrib_times - flight_times)
-    diff_isha = np.abs(isha_times - flight_times)
-    diff_fajr = np.abs(fajr_times - flight_times)
+    diff_isha    = np.abs(isha_times    - flight_times)
+    diff_fajr    = np.abs(fajr_times    - flight_times)
     diff_sunrise = np.abs(sunrise_times - flight_times)
 
-
-   
-
-    fajr_ind, fajr_time = calculate_inflight_prayertime(diff_fajr, flight_times)
+    fajr_ind,    fajr_time    = calculate_inflight_prayertime(diff_fajr,    flight_times)
     sunrise_ind, sunrise_time = calculate_inflight_prayertime(diff_sunrise, flight_times)
-    dhuhr_ind, dhuhr_time = calculate_inflight_prayertime(diff_dhuhr, flight_times)
-    asr_ind, asr_time = calculate_inflight_prayertime(diff_asr, flight_times)
+    dhuhr_ind,   dhuhr_time   = calculate_inflight_prayertime(diff_dhuhr,   flight_times)
+    asr_ind,     asr_time     = calculate_inflight_prayertime(diff_asr,     flight_times)
     maghrib_ind, maghrib_time = calculate_inflight_prayertime(diff_maghrib, flight_times)
-    isha_ind, isha_time = calculate_inflight_prayertime(diff_isha, flight_times)
-
-    if debug:
-        fig, ax = plt.subplots(7, figsize= (10,10) )
-        ax[0].plot(flight_times)
-        ax[1].plot(flight_times)
-        ax[2].plot(flight_times)
-        ax[3].plot(flight_times)
-        ax[4].plot(flight_times)
-        ax[5].plot(flight_times)
-
-        ax[0].plot(fajr_times)
-        ax[1].plot(sunrise_times)
-        ax[2].plot(dhuhr_times)
-        ax[3].plot(asr_times)
-        ax[4].plot(maghrib_times)
-        ax[5].plot(isha_times)
-
-
-        ax[0].legend(['flight', 'fajr'])
-        ax[1].legend(['flight', 'sunrise'])
-        ax[2].legend(['flight', 'dhuhr'])
-        ax[3].legend(['flight', 'asr'])
-        ax[4].legend(['flight', 'maghrib'])
-        ax[5].legend(['flight', 'isha'])
-        ax[0].vlines(fajr_ind, 0 ,25, color = 'Red')
-        ax[1].vlines(sunrise_ind, 0 ,25, color = 'Red')
-        ax[2].vlines(dhuhr_ind, 0 ,25, color = 'Red')
-        ax[3].vlines(asr_ind, 0 ,25, color = 'Red')
-        ax[4].vlines(maghrib_ind, 0 ,25, color = 'Red')
-        ax[5].vlines(isha_ind, 0 ,25, color = 'Red')
-        ax[6].plot(altitudes)
-        ax[6].set_ylabel('altitudes')
+    isha_ind,    isha_time    = calculate_inflight_prayertime(diff_isha,    flight_times)
 
     prayer_labels = ['fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha']
     prayer_indices = [fajr_ind, sunrise_ind, dhuhr_ind, asr_ind, maghrib_ind, isha_ind]
-    prayer_times = [fajr_time, sunrise_time, dhuhr_time, asr_time, maghrib_time, isha_time]
-    combined_prayers = list(zip(prayer_indices, prayer_times, prayer_labels))
-    combined_prayers.sort(key=lambda x: (np.isnan(x[0],), x[0] if not np.isnan(x[0]) else float('inf')))
-    # Unzip the sorted list
-    sorted_prayer_indices, sorted_prayer_times, sorted_prayer_labels = zip(*combined_prayers)
+    prayer_times_list = [fajr_time, sunrise_time, dhuhr_time, asr_time, maghrib_time, isha_time]
 
-    qibla_directions_absolute = np.zeros(len(sorted_prayer_times))
-    headings_absolute = np.zeros(len(sorted_prayer_times))
-
-    for ind, loc_ind in enumerate(sorted_prayer_indices):
-
-        if loc_ind is not np.nan:
-            qibla_directions_absolute[ind] = qibla_direction(latitudes[loc_ind[0]], longitudes[loc_ind])
-            headings_absolute[ind] = headings[loc_ind]
-
-
-    qibla_directions_relative = qibla_directions_absolute - headings_absolute
-    print(qibla_directions_relative)    
-
-    for ind_pt, pt in enumerate(sorted_prayer_times):
-        if pt is not np.nan:
-            print(sorted_prayer_labels[ind_pt] + ' time is at ' + str(ConvertTo12Hr(pt)))
+    combined = []
+    for idx_obj, t, label in zip(prayer_indices, prayer_times_list, prayer_labels):
+        if isinstance(idx_obj, np.ndarray) and idx_obj.size > 0 and not np.isnan(idx_obj[0]):
+            idx_int = int(idx_obj[0])  # first occurrence
+            t_val = float(t) if not (isinstance(t, float) and np.isnan(t)) else None
         else:
-            print(sorted_prayer_labels[ind_pt] + ' time is at ' + str(pt))
+            idx_int = None
+            t_val = None
+        combined.append((idx_int, t_val, label))
 
-    for ind_pt, pt in enumerate(sorted_prayer_times):
-        if pt is not np.nan:
-            draw_plane_with_arrow(relative_angle_deg = qibla_directions_relative[ind_pt],
-                                  title = 'Qibla for: ' + sorted_prayer_labels[ind_pt],
-                                  arrow_length = 1)
-            
-                
-    
+    # Sort by index, None at the end
+    combined.sort(key=lambda x: (x[0] is None, x[0] if x[0] is not None else 10**9))
+    sorted_indices, sorted_times, sorted_labels = zip(*combined) if combined else ([], [], [])
+
+    # Compute absolute/relative qiblah headings only for valid indices
+    qibla_abs = []
+    headings_abs = []
+    for idx in sorted_indices:
+        if idx is not None:
+            # NOTE: your code had a small indexing bug here
+            # longitudes/latitudes are 1D arrays, so use [idx] not [loc_ind[0]] / [loc_ind]
+            q_dir = qibla_direction(latitudes[idx], longitudes[idx])
+            qibla_abs.append(q_dir)
+            headings_abs.append(float(headings[idx]))
+        else:
+            qibla_abs.append(None)
+            headings_abs.append(None)
+
+    qibla_rel = []
+    for q, h in zip(qibla_abs, headings_abs):
+        qibla_rel.append(None if (q is None or h is None) else (q - h))
+
+    # Build schedule and figures
+    def to_12h(t):
+        if t is None:
+            return "—"
+        hr, m, ap = ConvertTo12Hr(t)
+        return f"{hr:02d}:{m:02d} {ap}"
+
+    schedule = []
+    for idx, t, label in zip(sorted_indices, sorted_times, sorted_labels):
+        schedule.append({
+            "label": label,
+            "index": idx if idx is not None else "—",
+            "time_24h": None if t is None else round(t, 3),
+            "time_12h": to_12h(t),
+        })
+
+    # Qiblah figs
+    qibla_figs = []
+    for rel, label in zip(qibla_rel, sorted_labels):
+        if rel is not None:
+            fig = draw_plane_with_arrow(relative_angle_deg=rel, title=f"Qiblah for: {label}", arrow_length=1)
+            qibla_figs.append(fig)
+
+    # Optional debug figure (matplotlib)
+    debug_fig = None
+    if debug:
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots(7, figsize=(10, 10))
+        ax[0].plot(flight_times);  ax[0].plot(fajr_times);     ax[0].legend(['flight', 'fajr'])
+        ax[1].plot(flight_times);  ax[1].plot(sunrise_times);  ax[1].legend(['flight', 'sunrise'])
+        ax[2].plot(flight_times);  ax[2].plot(dhuhr_times);    ax[2].legend(['flight', 'dhuhr'])
+        ax[3].plot(flight_times);  ax[3].plot(asr_times);      ax[3].legend(['flight', 'asr'])
+        ax[4].plot(flight_times);  ax[4].plot(maghrib_times);  ax[4].legend(['flight', 'maghrib'])
+        ax[5].plot(flight_times);  ax[5].plot(isha_times);     ax[5].legend(['flight', 'isha'])
+        ax[6].plot(altitudes);     ax[6].set_ylabel('altitude (ft)')
+        debug_fig = fig
+
+    return {
+        "schedule": schedule,
+        "qibla_figs": qibla_figs,
+        "debug_fig": debug_fig
+    }
