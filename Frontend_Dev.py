@@ -108,7 +108,11 @@ def _ap_label(ap: Any) -> str:
 
 def filter_by_airline(df: pd.DataFrame, selected_airline: str) -> pd.DataFrame:
     """Filter df (expects a column named 'airline', any case) to the selected airline."""
-    if not selected_airline or selected_airline == "All airlines":
+    if (
+        not selected_airline
+        or selected_airline == "All airlines"
+        or selected_airline == "Select an Airline"
+    ):
         return df
 
     # locate the column regardless of case
