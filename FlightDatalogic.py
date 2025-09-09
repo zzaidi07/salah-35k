@@ -508,4 +508,4 @@ def FetchDate(input_str: str, status: str | None = None) -> dt.date:
             diff -= 7
         target_date = today + timedelta(days=diff)
 
-    return target_date
+    return target_date.isoformat()
