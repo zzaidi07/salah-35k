@@ -385,8 +385,8 @@ def results_view():
                 prayer_method=prayer_method,
                 date=date_tuple,
                 flight_early=flight_early,
-                debug=False,  # Set to False for production
-                datalog_index=0,  # Use first datalog by default
+                debug=True,  # Set to False for production
+                datalog_index=-1,  # Use first datalog by default
             )
 
             # Display prayer schedule with improved styling
