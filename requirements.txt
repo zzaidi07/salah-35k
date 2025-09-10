@@ -3,8 +3,6 @@ ddgs
 matplotlib
 timezonefinder
 datetime
-difflib
-typing
 pandas
 streamlit
 dateutil
