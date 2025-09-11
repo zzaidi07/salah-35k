@@ -7,6 +7,3 @@ pandas
 streamlit
 python-dateutil
 pytz
-json
-re
-math
