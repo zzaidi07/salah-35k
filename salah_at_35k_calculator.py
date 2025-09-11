@@ -489,7 +489,7 @@ def salah_calculator(
     )
     isha_ind, isha_time = calculate_inflight_prayertime(diff_isha, flight_times)
 
-    prayer_labels = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"]
+    prayer_labels = ["Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha"]
     prayer_indices = [fajr_ind, sunrise_ind, dhuhr_ind, asr_ind, maghrib_ind, isha_ind]
     prayer_times_list = [
         fajr_time,
@@ -573,22 +573,22 @@ def salah_calculator(
         fig, ax = plt.subplots(7, figsize=(10, 10))
         ax[0].plot(flight_times)
         ax[0].plot(fajr_times)
-        ax[0].legend(["flight", "fajr"])
+        ax[0].legend(["flight", "Fajr"])
         ax[1].plot(flight_times)
         ax[1].plot(sunrise_times)
-        ax[1].legend(["flight", "sunrise"])
+        ax[1].legend(["flight", "Sunrise"])
         ax[2].plot(flight_times)
         ax[2].plot(dhuhr_times)
-        ax[2].legend(["flight", "dhuhr"])
+        ax[2].legend(["flight", "Dhuhr"])
         ax[3].plot(flight_times)
         ax[3].plot(asr_times)
-        ax[3].legend(["flight", "asr"])
+        ax[3].legend(["flight", "Asr"])
         ax[4].plot(flight_times)
         ax[4].plot(maghrib_times)
-        ax[4].legend(["flight", "maghrib"])
+        ax[4].legend(["flight", "Maghrib"])
         ax[5].plot(flight_times)
         ax[5].plot(isha_times)
-        ax[5].legend(["flight", "isha"])
+        ax[5].legend(["flight", "Isha"])
         ax[6].plot(altitudes)
         ax[6].set_ylabel("altitude (ft)")
         debug_fig = fig

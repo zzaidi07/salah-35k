@@ -407,8 +407,6 @@ def results_view():
                     width: 100%;
                 }
                 .prayer-table th {
-                    background-color: #262730;
-                    color: #262730;
                     font-weight: bold;
                     padding: 12px;
                     text-align: left;
@@ -417,12 +415,6 @@ def results_view():
                 .prayer-table td {
                     padding: 12px;
                     border-bottom: 1px solid #000000;
-                }
-                .prayer-table tr:nth-child(even) {
-                    background-color: #262730;
-                }
-                .prayer-table tr:hover {
-                    background-color: #4a4b52;
                 }
                 </style>
                 """,
@@ -515,10 +507,6 @@ def _flight_card(record: Dict[str, Any], idx: int, selected_idx: Optional[int]) 
     duration = record.get("duration") or record.get("block_time")
 
     is_selected = selected_idx == idx
-    border = "#60a5fa" if is_selected else "rgba(255,255,255,.18)"
-    bg = "rgba(37,99,235,0.16)" if is_selected else "#0f172a"
-    text_primary = "#f8fafc"
-    text_muted = "rgba(248,250,252,.75)"
     badge = "✓ Selected" if is_selected else "Select"
 
     extra = " · ".join([p for p in [aircraft, duration] if p])  # e.g. "B77W · 12:41"
@@ -531,24 +519,18 @@ def _flight_card(record: Dict[str, Any], idx: int, selected_idx: Optional[int]) 
     with st.container():
         st.markdown(
             f"""
-            <div style="
-                border:1px solid {border};
-                background:{bg};
-                padding:14px 16px;
-                border-radius:12px;
-                margin-bottom:10px;
-                color:{text_primary};">
+            <div style="border:1px solid; padding:14px 16px; border-radius:12px; margin-bottom:10px;">
                 <div style="font-size:18px;font-weight:700;">
                     {top_line}
                 </div>
-                <div style="font-size:13px;color:{text_muted};margin-top:4px;">
+                <div style="font-size:13px;margin-top:4px;">
                     📅 {date_h} &nbsp;|&nbsp; {stat}{(" &nbsp;|&nbsp; " + extra) if extra else ""}
                 </div>
                 <div style="font-size:16px;font-weight:600;margin-top:10px;">
-                    🛫 Departure: <span style="color:{text_primary};">{dep}</span> from {org}
+                    🛫 Departure: <span>{dep}</span> from {org}
                 </div>
                 <div style="font-size:16px;font-weight:600;margin-top:4px;">
-                    🛬 Arrival: <span style="color:{text_primary};">{arr}</span> at {dst}
+                    🛬 Arrival: <span>{arr}</span> at {dst}
                 </div>
             </div>
             """,
