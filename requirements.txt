@@ -7,3 +7,4 @@ pandas
 streamlit
 python-dateutil
 pytz
+bs4
