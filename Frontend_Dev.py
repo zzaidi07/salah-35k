@@ -142,6 +142,12 @@ def filter_by_date(records: list, selected_date):
 def search_view():
     """Display the flight search interface"""
     st.title("✈️ Salah@35k")
+    st.warning(
+        "This version of Salah@35K is only a beta. Be so kind to report any bugs to reza.faridazimi@gmail.com"
+    )
+    st.write(
+        " :grey[The salah times provided are for general guidance and may not always be precise.]"
+    )
 
     col1, col2 = st.columns([2, 1])
 
@@ -168,6 +174,7 @@ def search_view():
             Flightnum = st.text_input(
                 "Flight Number",
                 placeholder="Search Flight Number...",
+                help="Flight times are shown in respect to flight locations.",
             )
             submit = st.form_submit_button("Find Flights", use_container_width=True)
 
@@ -228,6 +235,7 @@ def search_view():
                     options=airports["label"].tolist(),
                     index=None,
                     placeholder="Search departure airport...",
+                    help="Flight times are shown in respect to flight locations.",
                 )
             with col2:
                 arr_label = st.selectbox(
