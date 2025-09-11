@@ -7,8 +7,6 @@ pandas
 streamlit
 python-dateutil
 pytz
-zoneinfo
-bs4
 json
 re
 math
