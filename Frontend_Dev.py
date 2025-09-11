@@ -14,7 +14,7 @@ import pytz
 st.set_page_config(page_title="Flight Finder", page_icon="✈️", layout="wide")
 
 airports_csv = Path("airports.csv")
-Airlines_csv = Path("Airlines.csv")
+Airlines_csv = Path("airlines.csv")
 STATE_SELECTED_IDX = "selected_flight_idx"
 STATE_SELECTED_FLIGHT = "selected_flight"
 STATE_CURRENT_VIEW = "current_view"  # "search" or "results"
