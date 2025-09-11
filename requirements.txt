@@ -5,7 +5,7 @@ timezonefinder
 datetime
 pandas
 streamlit
-dateutil
+python-dateutil
 pytz
 zoneinfo
 bs4
