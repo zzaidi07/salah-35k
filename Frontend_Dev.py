@@ -141,7 +141,7 @@ def filter_by_date(records: list, selected_date):
 
 def search_view():
     """Display the flight search interface"""
-    st.title("✈️ Salah@35k")
+    st.title("✈️ In-Flight Salah Timing Calculator")
     st.warning(
         "This version of Salah@35K is only a beta. Be so kind to report any bugs to reza.faridazimi@gmail.com"
     )
@@ -398,7 +398,9 @@ def results_view():
             )
 
             # Display prayer schedule with improved styling
-            st.subheader("📅 Prayer Schedule")
+            st.subheader("📅 Salah Schedule (Origin's timezone)")
+            st.info("Only salah times that *start* during the flight are shown")
+
             if result.get("schedule"):
                 schedule_df = pd.DataFrame(result["schedule"])
                 # Filter to only show label and time_12h columns
